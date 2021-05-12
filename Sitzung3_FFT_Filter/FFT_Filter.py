@@ -7,12 +7,13 @@ Created on Mon May 10 10:45:50 2021
 """
 
 ##wir beginnen damit, einige Packages zu importieren, die wir brauchen werden, und unsere Beispieldaten zu laden
-
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy import signal
 
 dat=np.load("timeseries.npy") 
+dat_all = dat.copy()
+dat = dat[:20000]
 #es handelt sich um Ruhe-EEG-Daten von einem zentralen Kanal (Cz), 
 #die wir vor einigen Wochen im Institut aufgezeichnet haben
 #wir plotten die Zeitreihe, um einen ersten Eindruck zu bekommen:
@@ -57,8 +58,26 @@ b) Stellen Sie die Arrays sine_coefficients und fft_coefficients in einer
 c) Auf der X-Achse Ihres Plots ist die Frequenz abgetragen, allerdings nicht
     in Hertz oder einer anderen bekannten Einheit. Ermitteln Sie die Frequenzen in
     Hertz und stellen Sie sie auf der X-Achse dar.
-
 """
+
+fft_coefficients = np.fft.fft(dat)
+plt.plot(np.abs(fft_coefficients))
+freqs = np.fft.fftfreq(len(fft_coefficients), d = 1/1000)
+"""Musterlösung
+#a)
+fft_coefficients = np.fft.fft(dat)
+#b)
+plt.plot(np.abs(fft_coefficients))
+#c)
+#höchste abbildbare Frequenz ist die Nyquist-Frequenz = halbe Samplingfrequenz.
+#die zweite Hälfte des Spektrums ist symmetrisch zur ersten und kann, für reell-
+#wertige Ausgangssignale, ignoriert werden. Die Frequenzen in Hertz ergeben sich dann als 
+#lineare Sequenz zwischen 0 und der Nyquist-Frequenz (500 Hz)
+frequencies = np.zeros(len(fft_coefficients))
+frequencies[:int(len(frequencies)/2)+1] = np.linspace(0,500,int(len(frequencies)/2)+1)
+frequencies[int(len(frequencies)/2):] = np.linspace(-500,0,int(len(frequencies)/2)+1)[:-1]
+"""
+
 
 
 
@@ -81,16 +100,39 @@ c) Zeigen Sie, dass die Fourier-Transformation informationserhaltend ist, indem 
     inverse FFT durchfuehren.
 """
 
+t = np.linspace(0,1,len(dat)) #Hilfs-Vektor in Laenge des Signals erzeugen
+dft_coefficients = np.zeros(len(dat),dtype='complex') #leeren Koeffizientenvektor erzeugen, der vom Loop gefuellt wird
+for freq in np.arange(len(dat)): #Erzeuge so viele verschiedene Sinus, wie es Zeitpunkte im Signal gibt
+    sinewave = np.exp(-1j*2*np.pi*freq*t) #wir erzeugen einen Sinus in gleicher Laenge wie das Signal
+    dft_coefficients[freq] = sinewave.dot(dat) #Punktprodukt
+
+
+plt.figure()
+plt.plot(np.abs(fft_coefficients))
+plt.plot(np.abs(dft_coefficients))
+
+
+"""Musterlösung
+#plot 3D
+from mpl_toolkits.mplot3d import Axes3D
+fig = plt.figure()
+ax = fig.add_subplot(111, projection='3d')
+sinewave = np.exp(-1j*2*np.pi*5*t) #wir erzeugen einen Sinus in gleicher Laenge wie das Signal
+ax.plot(t,np.real(sinewave), np.imag(sinewave))
 #kopiert von Zeile 36ff.
 t = np.linspace(0,1,len(dat)) #Hilfs-Vektor in Laenge des Signals erzeugen
-sine_coefficients = np.zeros(len(dat),dtype='float') #leeren Koeffizientenvektor erzeugen, der vom Loop gefuellt wird
-for freq in np.arange(len(dat)): #Erzeuge so viele verschiedene Sinus, wie es Zeitpunkte im Signal gibt
-    sinewave = np.sin(2*np.pi*freq*t) #wir erzeugen einen Sinus in gleicher Laenge wie das Signal
-    sine_coefficients[freq] = sinewave.dot(dat) #Punktprodukt
+dft_coefficients = np.zeros(len(dat),dtype='complex') #leeren Koeffizientenvektor erzeugen, der vom Loop gefuellt wird
+for freq in range(len(dat)): #Erzeuge so viele verschiedene Sinus, wie es Zeitpunkte im Signal gibt
+    sinewave = np.exp(-1j*2*np.pi*freq*t) #wir erzeugen einen Sinus in gleicher Laenge wie das Signal
+    dft_coefficients[freq] = sinewave.dot(dat) #Punktprodukt
 
+fft_coefficients = np.fft.fft(dat)
+plt.plot(np.abs(dft_coefficients))
+plt.plot(np.abs(fft_coefficients))
 
+np.allclose(dat, np.fft.ifft(np.fft.fft(dat)))
 
-
+"""
 
 #%% Filter
 
@@ -99,6 +141,7 @@ for freq in np.arange(len(dat)): #Erzeuge so viele verschiedene Sinus, wie es Ze
 #Man unterscheidet Filter mit endlicher (Finite Impulse Response, FIR) 
 #von solchen mit unendlicher Impulsantwort (Infinite Impulse Response, IIR).
 #Um den Unterschied zu demonstrieren, erstellen wir einen einfachen Dirac-Impuls:
+
 
 dirac = np.zeros(1000)
 dirac[500] = 1
@@ -136,23 +179,71 @@ b) Demonstrieren Sie, was mit "endlicher" und "unendlicher" Impulsantwort gemein
 """
 
 
+ir_butter = []
+ir_fir = []
+kernels = range(1,500)
+for kernel in kernels:
+    butterworth = signal.butter(kernel,.05,btype='low') #Tiefpassfilter
+    fir = signal.firwin(kernel, .05)
+
+    filtered_fir = signal.lfilter(fir,1,dirac)
+    filtered_butterworth = signal.lfilter(*butterworth,dirac)
+    ir_butter.append(sum(filtered_butterworth != 0))
+    ir_fir.append(sum(filtered_fir != 0))
+
+
+plt.figure()
+plt.plot(kernels, ir_butter, label = "IIR")
+plt.plot(kernels, ir_fir, label = "FIR")
+plt.legend()
+
+
+
+"""Musterlösung
+#Faltung läuft in Vorwärts-Richtung, daher Verschiebung. Übliche Lösung ist,
+#das Signal nochmals rückwärts zu filtern (funktion signal.filtfilt)
+
+
+ir_butter = []
+ir_fir = []
+kernels = range(1,50)
+for kernel in kernels:
+    butterworth = signal.butter(kernel,.05,btype='low')
+    fir = signal.firwin(kernel, .05)
+
+    filtered_fir = signal.lfilter(fir,1,dirac)
+    filtered_butterworth = signal.lfilter(*butterworth,dirac)
+    ir_butter.append(sum(filtered_butterworth != 0))
+    ir_fir.append(sum(filtered_fir != 0))
+
+
+plt.figure()
+plt.plot(kernels, ir_butter, label = "IIR")
+plt.plot(kernels, ir_fir, label = "FIR")
+plt.legend()
+"""
 
 
 
 
 
 
+#%%
+
+dat = dat_all    
+
+butter = signal.butter(4, (1, 30), fs = 1000, btype = "pass")
+notch = signal.butter(4, (48,52), fs = 1000, btype = "stop")
+dat_filtered = signal.filtfilt(*butter, dat)
+dat_filtered_notch = signal.filtfilt(*notch, dat_filtered)
+plt.figure()
+plt.plot(dat)
+plt.plot(dat_filtered)
+plt.plot(dat_filtered_notch)
 
 
-
-
-
-
-
-
-
-
-
+f, r = signal.freqz(*butter, fs = 1000)
+plt.plot(f,np.abs(r))
 
 
 
